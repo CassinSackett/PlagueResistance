@@ -10,6 +10,9 @@ bt13geno <- extract.gt(btpd13vcf) # Character matrix containing the genotypes
 bt13position <- getPOS(btpd13vcf) # Positions in bp
 bt13chromosome <- getCHROM(btpd13vcf) # Chromosome information for each SNP in file (i.e., each scaffold repeated many times)
 
+#link your scaffolds to the positions (useful in all cases but essential if you have SNPs at the same positions on multiple scaffolds)
+SNPnames <- paste(bt13chromosome,bt13position, sep=":")
+
 btmat13 <- matrix(NA, nrow = nrow(bt13geno), ncol = ncol(bt13geno)) #ncol=14, nrow=7925228
 
 newbtmat13 <- t(btmat13) #transpose to get indivs in rows and SNPs in columns for OutFLANK
