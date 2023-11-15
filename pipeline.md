@@ -61,8 +61,6 @@ Note: A1 is the name of the minor allele *in the sample* (i.e., the specific all
 It is also important to look at the odds ratios, as well as loci that have certain genotypes strongly associated with the phenotype of interest but that cannot have OR calculated because the allele frequency of the minor allele is 0 in the unaffected / control group. (This will be less likely in larger samples.)
 
 #### plink2:
- :construction: THIS IS STILL IN DEVELOPMENT :construction: 
- 
 First, convert plink1 files (.ped + .map) to plink2 format (.pgen + .psam + .pvar) (this is fast)
 ```
 /path/to/plink2 --pedmap /path/to/prefix_of_ped_map-files --allow-extra-chr --out output_prefix
@@ -87,6 +85,8 @@ This will create a table of allele frequencies output as a .afreq file.
 /path/to/plink2 --pfile /path/to/file-prefix --allow-extra-chr --pheno /path/to/phenotype-file.txt --read-freq /path/to/file.afreq --glm --covar /path/to/file.eigenvec  --parameters 1-4 --out /path/to/prefix/file
 ```
 
+ :construction: THIS IS STILL IN DEVELOPMENT :construction: 
+ 
 If you are interested in the genotypic model 
 ``` 
 plink2 --pfile mydata \
@@ -96,7 +96,7 @@ plink2 --pfile mydata \
 ``` 
 should induce
 Additive effect ('ADD') (parameter 1) and
-Dominance deviation ('DOMDEV') (parameter 2) (or do I need to specify --glm genotypic interaction for this to work?).
+Dominance deviation ('DOMDEV') (parameter 2) (or perhaps one needs to specify --glm genotypic interaction for this to work?).
 
 You could replace "genotypic" with dominant, recessive, hetonly and interaction.
 
