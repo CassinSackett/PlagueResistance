@@ -16,7 +16,7 @@ This code is for plink v1.9. I will update the pipeline in the future for plink2
 :::
 
 
-### A. Convert vcf to plink format
+### 1. Convert vcf to plink format
 First, we need to convert our .vcf file to plink2 format. This is surprisingly fast :woman-running: 
 
 ```
@@ -26,7 +26,7 @@ First, we need to convert our .vcf file to plink2 format. This is surprisingly f
 This will generate several output files with the same prefix; you will supply plink2 with the prefix and it will use all of these files.
 
 
-### B. Generate phenotype file for plink
+### 2. Generate phenotype file for plink
 You need to tell plink2 which individuals to group in each phenotype group. You will generate a tab-delimited file that looks like this:
 
 ``` 
@@ -41,7 +41,40 @@ You can also have a header, which can be useful if you have multiple phenotypes,
 
 In my case, you can see that each individual is written twice, as its name is read in the vcf file, and then its phenotype follows in the third column. I did this because I was not interested in among-family variation, but this could be useful to include in stratified populations. In this example, the individuals whose names begin with 'S' survived :smiley: (I assigned phenotype 1) and those with names beginning with 'D' died :skull_and_crossbones: (I assigned phenotype 2). In plink's syntax, 1 is a control and 2 is a case.
 
-### C. Decide which test to use in plink
+### 3. Edit your .map file to get correct scaffold names
+This is an optional step, but it will make downstream analyses easier. Since I do not have a chromosome-level assembly, my .map file looked like this:
+
+``` 
+0	scaffold1:11948	0	11948
+0	scaffold1:12214	0	12214
+0	scaffold1:13653	0	13653
+0	scaffold1:14248	0	14248
+``` 
+
+where in the first column, chromosome number was replaced by the conversion with a zero because plink's conversion did not recognize the chromosome names. To fix this, I did the following:
+
+``` 
+cut -f2- original.map > cut.map
+``` 
+followed by
+
+
+``` 
+cat cut.map | awk -F '\t' '{split($1, a, ":"); print a[1] "\t" a[2] "\t" $2 "\t" $3}' > fixed.map
+``` 
+This will use awk to split column 1 on the ```:``` and then print both halves of that column as new separate columns, followed by all the other columns that were in the file.
+
+The new file looks like this:
+``` 
+scaffold1	11948	0	11948
+scaffold1	12214	0	12214
+scaffold1	13653	0	13653
+scaffold1	14248	0	14248
+``` 
+where the columns are chrom, identifier, distance in cM (0 as default), position.
+
+
+### 4. Decide which test to use in plink
 
 :eyes: the syntax in plink2 has changed and I need to update this pipeline to reflect  that. :eyes:
 
@@ -102,7 +135,7 @@ Dominance deviation ('DOMDEV') (parameter 2) (or do I need to specify --glm geno
 You could replace "genotypic" with dominant, recessive, hetonly and interaction.
 
 
-### D. Manage the plink output
+### 5. Manage the plink output
 I like to edit the original output from plink to get rid of the 0s it assigns my chromosomes, remove the SE column, etc.
 
 First, change to tab-delimited using translate (tr) and make just one tab between columns (s for squeeze all consecutive delimiters into one):
@@ -121,11 +154,38 @@ sed 's/$/ \tORmas40/' btpd_ORmas40.txt > btpd_ORmas40.annotated.txt
 ```
 and then I can concatenate the files together with ``` cat btpd_ORmas40.annotated.txt btpd_pless0.001.annotated.txt btpd_x2mas18.annotated.txt > btpd_allcriteria_topcandidates.txt ```
 
+### 6. Generate random GWAS data to provide null expectations
+
+I am sure this could be done much more elegantly in [SLiM](https://messerlab.org/slim/). However, my approach was to randomly generate case/ control groups 1000 times by randomizing the phenotypes among individuals, and then running a GWAS on those groups, and pulling out the significant loci. This way, I can get an idea of how many false positives (significant loci in random groupings) to expect, and can use these null-model candidate loci downstream.
+
+For plink2:
+First, generate random groupings of individuals:
+```
+for i in {1..1000}; do sort -R ../btpd_SNP_QC_vcftools_complete.fltr_mean2sd_bin.fam > btpd_SNP_QC_vcftools_complete.fltr_mean2sd_binv$i.fam; head -n 7 btpd_SNP_QC_vcftools_complete.fltr_mean2sd_binv$i.fam > pop1v$i.txt; tail -n 7 btpd_SNP_QC_vcftools_complete.fltr_mean2sd_binv$i.fam > pop2v$i.txt; done
+```
+then you can do this:
+```
+plink1.9.exe --bfile file --keep set1.fam --make-bed --out subset1
+
+plink1.9.exe --bfile file --keep set2.fam --make-bed --out subset2
+```
+
+and continue with analyses.
+
+For plink1.9, I want to randomize the phenotype in column 3 of my .pheno file, which looks like this
+R_47A13080701_DSW64908-V        R_47A13080701_DSW64908-V        1
+R_47A15080703_DSW64910-V        R_47A15080703_DSW64910-V        1
+R_17A25060701_DSW64899-V        R_17A25060701_DSW64899-V        2
+R_17A14070804_DSW64904-V        R_17A14070804_DSW64904-V        2
+...
+
+
+
 
 
 
 ## II. Outlier FST
-I am more confident that my candidates are real when using several different programs to detect outliers. My current favorites are 1) site-by-site and windowed FST in vcftools and 2) BayPass.
+I am more confident that my candidates are real when using several different programs to detect outliers. Two methods I like based on ease and widespread use are 1) site-by-site and windowed FST in vcftools and 2) BayPass.
 
 ### 1. Calculate FST at each site in  [VCFtools](https://vcftools.github.io/man_latest.html) 
 to calculate Fst at each site so we can determine which loci fall outside the top 1% (or appropriate cutoff) of genome-wide FST values. VCFtools uses the Weir & Cockerham (1984) estimator. First, we create two popfiles, one with each population. These popfiles are simply text files with the list of individuals, and I use the ```--missing-indv``` flag in VCFtools to get the sample names as they are understood by the software (e.g., in this case, I omitted the .sorted_markdup.g.vcf from each individual). 
@@ -136,13 +196,19 @@ to calculate Fst at each site so we can determine which loci fall outside the to
 
 VCFtools uses Weir & Cockerham's estimate, controlling for sample size, so many datasets have negative estimates. I change these to zero immediately (but you could do so later in R) with a python script '[convert_negativeFSTs_to_0.py](https://github.com/CassinSackett/SNP_capture/blob/master/convert_negative-fst_to_zero.py)'. 
 
-If i'm trying to be conservative rather than cast a wide net, I sort from highest to lowest FST with sort -k3,3 high-low.weir.fst > high-low_sorted.fst and scroll through to look for obvious breaks in the FST values, and I plot the distribution of FST to confirm this.
+Download the python script and edit the output filename (line 3), input file name (line 41), and the column number that you want to adjust (lines 19, 23, 29). Python is zero-indexed, so if you want to change column 3, there should be a [2] in between the brackets. Finally, you may need to change the minimum line length (line 15) if you have fewer columns (len refers to the number of columns).
+
+Next, I sort from highest to lowest FST with ```sort -n -k3,3 surv-fat.weir.fst > surv-fat_sorted.fst``` and scroll through to look for obvious breaks in the FST values, and I plot the distribution of FST to confirm this.
 
 
 ### 2. Calculate FST in windows using  [VCFtools](https://vcftools.github.io/man_latest.html) 
 
+First, decide on the window size you wish to use for calculated FST. This may depend on how your data will look when plotting (e.g., plotting FST across a large number of scaffolds may be easier to visualize if FST windows are larger) or on some characteristic of your taxon (e.g., size of LD blocks).
+
+
+
 ### 3. Test for outliers in BayeScan
-:warning: My BayeScan pilot runs kept getting stuck at ~14% no matter how much memory I allocated. I am not sure if this was a specific problem with our cluster, but I could not troubleshoot and decided not to use this analysis.  :warning: 
+:warning: My BayeScan pilot runs kept getting stuck at ~14% no matter how much memory I allocated. I am not sure if this was a specific problem with our cluster, but I ultimately decided not to use this analysis, so this code is not final.  :warning: 
 
 First, we need to convert our vcf file to a BayeScan input.  We will doing this using a [perl script written by Santiago Sanchez-Ramirez](https://github.com/santiagosnchez/vcf2bayescan). 
 
@@ -215,7 +281,7 @@ OutFLANK(FstDataFrame=bt_fst, LeftTrimFraction=0.05, RightTrimFraction=0.05, Hmi
 
 ### 5. Test for loci under selection in BayPass
 
-After you have the BayeScan file above, use the python script [geste2baypass.py](https://github.com/CoBiG2/RAD_Tools/blob/master/geste2baypass.py) to convert this file to BayPass format.
+After you have the BayeScan file for #3 above, use the python script [geste2baypass.py](https://github.com/CoBiG2/RAD_Tools/blob/master/geste2baypass.py) to convert this file to BayPass format.
 
 ```
 python3 geste2baypass.py BayeScan/btpd_QC_complete-mean2sd_popnums.txt btpd_QC_complete_mean2sd_BP.txt 
@@ -319,11 +385,21 @@ for i in {3..146}; do awk -f loren2.awk -v x=$i BTPD_N144_gtypes.txt; done
 ```
 
 
-#### 5. 
-```
+#### 5. Generate a file from your reference genome of windows of a certain size
+
+First, we'll need to extract the scaffold lengths from our reference genome.
 ```
 
-#### 6. 
+```
+
+
+Next, we can make windows corresponding to each scaffold. This allows us to use, for instance, 10000 base pair windows without overshooting beyond the end of a chromosome. Using scaffold lengths as an input will cause the last window on each scaffold to be shorter than 10000bp according to each scaffold's true length.
+
+```
+bedtools2/bin/bedtools makewindows -g ../BTPD_firstgenome/scaffold_lengths.txt -w 100000 > btpdgenome_100kwind.bed
+```
+
+#### 6. Use coverage bed to examine the coverage of both heterozygotes and homozygotes in each window
 ```
 ```
 Once you have the first .hets and .homs files after loren2.awk, remove the header since the filename already contains the individual name. 
@@ -346,11 +422,86 @@ for i in {1..147}; do ../../vcftools/src/cpp/vcftools --vcf btpd_complete.fltr_m
 
 
 
-## V. Putting it all together: generate the list of candidate SNPs/regions
+## V. Calculate LD in regions of interest
+I do this in plink (in vcftools I was not getting the pairwise estimates I wanted). This syntax will output results in a table:
+
+
+```
+~/plink_mac_20210606/plink --file ../plink_analyses/btpd_SNP_QC_vcftools_complete.fltr_mean2sd --allow-extra-chr --allow-no-sex --chr scaffold214 --r2 --out btpd_SNP_QC_vcftools_complete.fltr_mean2sd_scaff214LD
+```
 
 
 
 ## VI. Follow up on candidate loci
+Since I am interested in adaptation to a novel selection pressure (evolved resistance to an introduced pathogen), I wanted to look at all of my candidate SNPs that had a different allele in survivors from the allele in the reference genome (which I am assuming to be a non-resistance allele).
 
+I used the .012 output from vcftools to count the number of alternate alleles in survivors at each SNP. To do so:
+
+Get list of positions .012.pos and put them all in one column ```tr "\t" ":" < .012.pos > .positions```
+
+Transpose columns into a row to create a header file ```tr "\n" "\t" < .positions > genotypes.header```
+
+and then opened the header in BBEdit to add a new line to the end of the file (I need to figure out how to do this in bash!)
+
+Then I separated my .012 file into two files with the two groups I am comparing (survivors vs fatalities). In each file, I summed the number of non-reference alleles at each SNP across all survivors:
+
+```
+awk '{for (i=1;i<=NF;i++) sum[i]+=$i;}; END{for (i in sum) print "for column "i" is " sum[i];}' btpd_moderate1300candidates.genotypes.txt > btpd_moderate1300candidates.num_nonref-alleles.txt
+```
+and then concatenated that on the end of the genotypes file
+
+```
+cat header genotypes alternate_allelecount > btpd_7survivors_gtypes_altallelecounts.txt
+```
+
+Next, I want to sort the loci in order of the MOST alternate alleles in the survivors group. There are ways to do this directly in bash, but I found it easier to transpose the file and then sort by columns.
+
+To transpose, I used the following script which I found [here](https://stackoverflow.com/questions/1729824/an-efficient-way-to-transpose-a-file-in-bash).
+
+```
+BEGIN { FS=OFS="\t" }
+{
+    for (rowNr=1;rowNr<=NF;rowNr++) {
+        cell[rowNr,NR] = $rowNr
+    }
+    maxRows = (NF > maxRows ? NF : maxRows)
+    maxCols = NR
+}
+END {
+    for (rowNr=1;rowNr<=maxRows;rowNr++) {
+        for (colNr=1;colNr<=maxCols;colNr++) {
+            printf "%s%s", cell[rowNr,colNr], (colNr < maxCols ? OFS : ORS)
+        }
+    }
+}
+```
+and then you call that script with
+
+``` 
+awk -f transpose_file.awk btpd_7survivors_gtypes_altallelecounts.txt > btpd_7survivors_gtypes_altallelecounts_transpose.txt 
+```
+
+Now we have two files that looks like this:
+
+```
+indiv_name	R_17a29060703_antibody	R_17A26060701_survivor	R_17a28060701_survivor	R_19A24070805_survivor	R_19A26070701_survivor	R_47A13080701_survivor	R_47A15080703_survivor	number_alternate_alleles
+scaffold3:3018055	2	2	2	2	1	2	2	13
+scaffold3:3019133	2	2	2	2	1	2	2	13
+```
+
+I want to calculate the difference in number of alternate alleles between my two groups, so I first pasted the files from each group next to each other:
+
+```
+paste btpd_7survivors_gtypes_alleletallies_transpose.txt btpd_7fatalities_gtypes_alleletallies_transpose.txt > btpd14_gtypes_alt-alleletallies.txt
+```
+You could cut the duplicate scaffold:pos field, or keep it as a check that your loci are in the same order in the two groups.
+
+Finally, you can use awk to calculate the absolute value of the difference in allele count between groups, where the $9 refers to column 9 (the first column with my allele tally):
+```
+awk 'BEGIN{FS=OFS="\t"} {print $0, ($9>$18 ? $9-$18 : $18-$9)}' btpd14_gtypes_alt-alleletallies.txt > btpd14_gtypes_alt-allele-diffs.txt
+```
+Now you can follow up on these loci, such as sorting by magnitude of differences, searching for fixed differences, or finding alleles that are present only in one group (e.g., survivors)
+
+:eyes: A note: If you suspect adaptation was conferred by a recent mutation, or if you expect dominance of a mutation, you may also want to look at loci that have one alternate allele per individual in the "survived" group that is absent in the "fatalities" group. In these data, there would be 7 alternate alleles in the survivors group and 0 in the fatalities.
 
 
