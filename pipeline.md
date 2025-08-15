@@ -158,6 +158,8 @@ and then I can concatenate the files together with ``` cat btpd_ORmas40.annotate
 
 I am sure this could be done much more elegantly in [SLiM](https://messerlab.org/slim/). However, my approach was to randomly generate case/ control groups 1000 times by randomizing the phenotypes among individuals, and then running a GWAS on those groups, and pulling out the significant loci. This way, I can get an idea of how many false positives (significant loci in random groupings) to expect, and can use these null-model candidate loci downstream.
 
+*Edit: on a Mac OSX, the 'sort -R' did not work* 
+
 For plink2:
 First, generate random groupings of individuals:
 ```
@@ -309,7 +311,7 @@ paste btpd_QC_complete_mean2sd.sites btpd_QC_complete_mean2sd_deflt_summary_pi_x
 
 
 ## III. Estimates of site-by-site heterozygosity
-You may theoretically be able to get this in an R package, but the strategy of using brute force :weight_lifter:  in bash gives consistent, manipulable results.
+You may theoretically be able to get this in an R package, but the strategy of using brute force :weight_lifter:  in bash gives consistent, manipulable results. But mostly, I'm better at coding in bash than in R :grimacing: 
 
 For large datasets, I use an interactive job instead of running on my laptop. You don't want to request too many resources or you'll be in the queue for a long time.
 
@@ -433,7 +435,21 @@ I do this in plink (in vcftools I was not getting the pairwise estimates I wante
 
 
 ## VI. Follow up on candidate loci
+### 6a. Allele frequency differences
 Since I am interested in adaptation to a novel selection pressure (evolved resistance to an introduced pathogen), I wanted to look at all of my candidate SNPs that had a different allele in survivors from the allele in the reference genome (which I am assuming to be a non-resistance allele).
+
+First, get your list of candidate sites. Mine looked something like this:
+```
+scaffold2693	50281
+scaffold2693	50354
+scaffold2693	50406
+...
+```
+I am going to make a .vcf file with just my candidate sites (e.g., to compare a PCA with all sites and candidate sites):
+
+```
+~/vcftools/src/cpp/vcftools --gzvcf btpd_SNP_QC_complete.fltr_mean2sd.recode.vcf.gz --positions moderate-candidates_1334sites.txt --out moderate-1334candidates --recode
+```
 
 I used the .012 output from vcftools to count the number of alternate alleles in survivors at each SNP. To do so:
 
@@ -503,5 +519,38 @@ awk 'BEGIN{FS=OFS="\t"} {print $0, ($9>$18 ? $9-$18 : $18-$9)}' btpd14_gtypes_al
 Now you can follow up on these loci, such as sorting by magnitude of differences, searching for fixed differences, or finding alleles that are present only in one group (e.g., survivors)
 
 :eyes: A note: If you suspect adaptation was conferred by a recent mutation, or if you expect dominance of a mutation, you may also want to look at loci that have one alternate allele per individual in the "survived" group that is absent in the "fatalities" group. In these data, there would be 7 alternate alleles in the survivors group and 0 in the fatalities.
+
+
+### 6b. Inferring gene location of candidate SNPs
+Right now, we have a list of candidate SNPs on different scaffolds. But unless the genome is very well annotated, we may want to blast the genomic region containing our SNP to figure out what gene or genomic region the SNP is in. Suppose our list ```candidates-list.bed``` looks something like this:
+
+```
+scaffold12    499208
+scaffold496    292017
+```
+
+First, you need to figure out what size region you want to blast, and make a bed file with the start and end position. Here, we'll blast 500 bp upstream (note the '-' prior to the equal sign in var1) and 1000 bp downstream (note the '-' prior to the equal sign in var1)
+
+```
+cat candidates-list.bed | awk '{var1=$2; var1-=500; var2=$2; var2+=1000; print $1 "\t" var1 "\t" var2}' > candidates_500bpup1kbdown.bed
+```
+
+Now we can use [bedtools](https://github.com/arq5x/bedtools2) to extract that region from the reference genome so we have something to blast:
+
+```
+bedtools getfasta -fi HcZfUnix_ref/HcZfUnix.fasta -bed candidates_500bpup1kbdown.bed -fo candidates_500bpup1kbdown.fa
+```
+where '-fi' refers to the reference genome fasta, and '-fo' refers to the name of the fasta sequence you are generating.
+
+Finally, you can blast against a custom or existing database: 
+
+```
+/ncbi-blast-2.2.30+/bin/blastn -query ExpInf_400bflanks.fa -out ExpInf_400bflanks_blastout.txt -db nr -remote -evalue 1e-3 -outfmt 7 
+```
+
+```-outfmt 7``` puts the output in a nice table w/ comment lines; ```-outfmt 11``` is _complete_ and can be later converted to other formats with an NCBI (?) script blast_formatter.). If there is no outfmt flag, you can add ```-line_length 80``` (or whatever you want) to lengthen the description. ```-db``` asks for the database name: nr is the non-redundant protein sequences from several sources; nt is the partially non-redundant nucleotide sequences.
+
+
+
 
 
